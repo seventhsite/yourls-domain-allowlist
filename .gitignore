@@ -1,0 +1,8 @@
+# Runtime store written by the plugin
+data/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*~
