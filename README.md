@@ -1,5 +1,7 @@
 # Domain Allowlist + Alerts (YOURLS plugin)
 
+[![Listed in Awesome YOURLS!](https://img.shields.io/static/v1?label=Awesome&message=YOURLS&color=C5A3BE&style=flat-square)](https://github.com/YOURLS/awesome)
+
 Restrict URL shortening to an allowlist of domains, and — optionally — get a
 Telegram heads-up when someone tries to shorten a domain that **isn't** on the
 list. That rejected-domain signal tells you which destinations your users
