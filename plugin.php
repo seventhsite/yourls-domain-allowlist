@@ -3,7 +3,7 @@
 Plugin Name: Domain Allowlist + Alerts
 Plugin URI: https://github.com/seventhsite/yourls-domain-allowlist
 Description: Restrict URL shortening to an allowlist of domains, with an admin settings page (edit the list, one-click-allow rejected domains, manage Telegram alerts) and optional throttled Telegram alerts about rejected domains. Self-contained: no extra DB table, no cron, no server tweaks — a bounded JSON file plus a traffic-driven "lazy cron" digest. Config is drop-in compatible with nicwaller/yourls-domainlimit ($domainlimit_list / $domainlimit_exempt_users).
-Version: 1.0.0
+Version: 1.1.0
 Author: seventhsite
 Author URI: https://github.com/seventhsite
 License: GPL-2.0-or-later
@@ -244,21 +244,39 @@ function da_handle_rejection( $host ) {
 			}
 		}
 
+		$prev_digest = (int) ( $s['last_digest'] ?? 0 );
 		if ( in_array( $cfg['mode'], array( 'digest', 'both' ), true ) ) {
-			if ( ( $now - (int) ( $s['last_digest'] ?? 0 ) ) >= $cfg['digest_interval'] ) {
+			if ( ( $now - $prev_digest ) >= $cfg['digest_interval'] ) {
 				$send_digest      = true;
 				$s['last_digest'] = $now;
 			}
 		}
 
-		// Snapshot for the digest (top hosts by hits) while we hold the lock.
-		$top = $s['rejects'];
-		uasort( $top, fn( $a, $b ) => $b['hits'] <=> $a['hits'] );
-		$top = array_slice( $top, 0, 10, true );
+		// Rank the digest by hits since the previous digest, not all-time: otherwise a
+		// one-off burst or an already-handled host tops every digest until evicted.
+		$top    = array();
+		$active = 0;
+		if ( $send_digest ) {
+			foreach ( $s['rejects'] as $h => &$r ) {
+				// No baseline yet = host first counted after the last digest (or a record
+				// from before baselines existed — then counted whole once if seen since).
+				$base  = $r['digested'] ?? ( $r['last'] >= $prev_digest ? 0 : $r['hits'] );
+				$delta = $r['hits'] - $base;
+				if ( $delta > 0 ) {
+					$top[ $h ] = array( 'new' => $delta, 'hits' => $r['hits'] );
+				}
+				$r['digested'] = $r['hits'];
+			}
+			unset( $r );
+			$active = count( $top );
+			uasort( $top, fn( $a, $b ) => $b['new'] <=> $a['new'] );
+			$top = array_slice( $top, 0, 10, true );
+		}
 
 		return array(
 			'instant'  => $send_instant ? array( 'host' => $host, 'hits' => $s['rejects'][ $host ]['hits'] ) : null,
 			'digest'   => $send_digest ? $top : null,
+			'active'   => $active,
 			'distinct' => count( $s['rejects'] ),
 		);
 	} );
@@ -279,11 +297,13 @@ function da_handle_rejection( $host ) {
 		);
 	}
 	if ( $actions['digest'] ) {
-		$lines = array( "📊 <b>" . da_h( $site ) . "</b> — top blocked domains" );
+		$lines = array( "📊 <b>" . da_h( $site ) . "</b> — top blocked domains since last digest" );
 		foreach ( $actions['digest'] as $h => $rec ) {
-			$lines[] = (int) $rec['hits'] . "× <code>" . da_h( $h ) . "</code>";
+			$total   = $rec['hits'] > $rec['new'] ? " (" . (int) $rec['hits'] . " total)" : '';
+			$lines[] = (int) $rec['new'] . "× <code>" . da_h( $h ) . "</code>" . $total;
 		}
-		$lines[] = "\n" . (int) $actions['distinct'] . " distinct domain(s) tracked.";
+		$lines[] = "\n" . (int) $actions['active'] . " domain(s) blocked since last digest, "
+			. (int) $actions['distinct'] . " tracked.";
 		da_telegram_send( $cfg, implode( "\n", $lines ) );
 	}
 }

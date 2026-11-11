@@ -24,7 +24,8 @@ and the periodic digest piggybacks on normal site traffic ("lazy cron").
   installs can switch with no config changes.
 - Optional **Telegram alerts** about rejected domains:
   - `instant` — the first time a new domain is rejected (throttled), and/or
-  - `digest` — a periodic "top rejected domains" summary.
+  - `digest` — a periodic "top rejected domains" summary, ranked by hits since
+    the previous digest (all-time totals shown alongside).
 - **Anti-spam / anti-ban throttling**: a per-domain cooldown, a global minimum
   gap between any two sends, and short network timeouts — all fire-and-forget,
   so a slow or failing Telegram call never blocks or breaks a shorten request.
@@ -87,7 +88,7 @@ Both work, and **`config.php` takes precedence**:
 ## How storage and the digest work (no DB, no cron)
 
 - **Storage** is one JSON file holding a map of `host -> {hits, first_seen,
-  last_seen, last_notified}` plus two timestamps. It is updated under an
+  last_seen, last_notified, hits_at_last_digest}` plus two timestamps. It is updated under an
   exclusive file lock (`flock`); the network send happens *after* the lock is
   released, so concurrent shorten requests never wait on Telegram.
 - The map is **hard-capped** at `max_hosts` entries (least-recently-seen are
